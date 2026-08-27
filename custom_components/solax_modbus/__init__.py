@@ -161,7 +161,7 @@ INFLIGHT_CANCEL_TIMEOUT = 2.0
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS = [Platform.BUTTON, Platform.NUMBER, Platform.SELECT, Platform.SENSOR, Platform.SWITCH, Platform.TIME]
+PLATFORMS = [Platform.BUTTON, Platform.NUMBER, Platform.SELECT, Platform.SENSOR, Platform.SWITCH, Platform.TEXT, Platform.TIME]
 
 # CONFIG_SCHEMA allows YAML configuration ONLY for debug_settings (DEVELOPMENT/TESTING/DEBUGGING ONLY)
 # All other configuration must be done via config flow (UI)
@@ -205,12 +205,12 @@ def should_register_be_loaded(hass: HomeAssistant, hub: Any, descriptor: Any) ->
     """
     Check if an entity is enabled in the entity registry, checking across multiple platforms.
     """
-    if getattr(descriptor, "internal", False):
+    if getattr(descriptor, "internal", False) and not getattr(descriptor, "internal_requires_control", False):
         _LOGGER.debug("%s: should be loaded: entity with key %s is internal, returning True.", hub.name, descriptor.key)
         return True
     unique_id = f"{hub._name}_{descriptor.key}"
     unique_id_alt = f"{hub._name}.{descriptor.key}"  # dont knnow why
-    platforms = (Platform.SENSOR, Platform.SELECT, Platform.NUMBER, Platform.SWITCH, Platform.BUTTON, Platform.TIME)
+    platforms = (Platform.SENSOR, Platform.SELECT, Platform.NUMBER, Platform.SWITCH, Platform.BUTTON, Platform.TEXT, Platform.TIME)
     registry = er.async_get(hass)
     entity_found = False
     # First, check if there is an existing enabled entity in the registry for this unique_id.
@@ -248,6 +248,9 @@ def should_register_be_loaded(hass: HomeAssistant, hub: Any, descriptor: Any) ->
         if d and d.entity_registry_enabled_default:
             return True
         d = hub.timeEntities.get(descriptor.key)
+        if d and d.entity_registry_enabled_default:
+            return True
+        d = hub.textEntities.get(descriptor.key)
         if d and d.entity_registry_enabled_default:
             return True
         _LOGGER.debug(
@@ -663,6 +666,7 @@ class SolaXModbusHub:
         self.numberEntities: dict[Any, Any] = {}  # all number entities, indexed by key
         self.selectEntities: dict[Any, Any] = {}
         self.switchEntities: dict[Any, Any] = {}
+        self.textEntities: dict[Any, Any] = {}
         self.timeEntities: dict[Any, Any] = {}
         self.gatedEntities: list[dict[str, Any]] = []  # descriptions with active_when, added/removed as their branch activates
         self.entity_dependencies: dict[str, list[str]] = {}  # Maps a sensor key to a list of data control keys that use the sensor as data source
@@ -2244,6 +2248,10 @@ class SolaXModbusHub:
                     control_descr = control_entity.entity_description
             if not control_descr:
                 control_entity = self.switchEntities.get(control_key)
+                if control_entity:
+                    control_descr = control_entity.entity_description
+            if not control_descr:
+                control_entity = self.textEntities.get(control_key)
                 if control_entity:
                     control_descr = control_entity.entity_description
             if not control_descr:

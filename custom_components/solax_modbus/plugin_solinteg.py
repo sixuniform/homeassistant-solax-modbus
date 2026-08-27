@@ -1,3 +1,4 @@
+import ipaddress
 import logging
 from dataclasses import dataclass, field, replace
 from typing import Any
@@ -34,6 +35,7 @@ from custom_components.solax_modbus.const import (
     BaseModbusNumberEntityDescription,
     BaseModbusSelectEntityDescription,
     BaseModbusSensorEntityDescription,
+    BaseModbusTextEntityDescription,
     plugin_base,
 )
 
@@ -260,6 +262,53 @@ def value_function_house_normal_load(initval: int, descr: Any, datadict: dict[st
     return None if v != v else v  # test nan
 
 
+def _normalize_endpoint(value: str) -> str:
+    """Validate Solinteg's fixed-width ``port,host`` endpoint format."""
+    value = value.strip()
+    if value.count(",") != 1:
+        raise ValueError("use port,host format")
+    port_text, host = value.split(",", 1)
+    if not port_text.isascii() or not port_text.isdecimal():
+        raise ValueError("port must be a decimal number")
+    port = int(port_text)
+    if not 1 <= port <= 65535:
+        raise ValueError("port must be between 1 and 65535")
+
+    host = host.strip()
+    if not host:
+        raise ValueError("host must not be empty")
+    try:
+        host.encode("ascii")
+    except UnicodeEncodeError as ex:
+        raise ValueError("host must contain ASCII characters only") from ex
+
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        hostname = host[:-1] if host.endswith(".") else host
+        labels = hostname.split(".")
+        if len(labels) == 4 and all(label.isdecimal() for label in labels):
+            raise ValueError("invalid IPv4 address") from None
+        if not hostname or len(hostname) > 253:
+            raise ValueError("invalid hostname length") from None
+        for label in labels:
+            if not 1 <= len(label) <= 63:
+                raise ValueError("hostname labels must contain 1 to 63 characters") from None
+            if not label[0].isalnum() or not label[-1].isalnum():
+                raise ValueError("hostname labels must begin and end with a letter or digit") from None
+            if any(not (character.isalnum() or character == "-") for character in label):
+                raise ValueError("hostname labels may contain only letters, digits, and hyphens") from None
+    else:
+        if not isinstance(address, ipaddress.IPv4Address):
+            raise ValueError("only IPv4 literals are supported")
+        host = str(address)
+
+    normalized = f"{port},{host}"
+    if len(normalized.encode("ascii")) >= 60:
+        raise ValueError("endpoint must use at most 59 ASCII bytes")
+    return normalized
+
+
 # =================================================================================================
 
 
@@ -299,6 +348,15 @@ class SolintegModbusSensorEntityDescription(BaseModbusSensorEntityDescription):
     sleepmode: int = field(default=SLEEPMODE_LASTAWAKE)
     register_type: int = field(default=REG_HOLDING)
     register_data_type: str = field(default=REGISTER_U16)
+
+
+@dataclass(kw_only=True, frozen=True)
+class SolintegModbusTextEntityDescription(BaseModbusTextEntityDescription):
+    """A class that describes Solinteg Modbus text entities."""
+
+    allowedtypes: int = field(default=ALLDEFAULT)
+    register_type: int = field(default=REG_HOLDING)
+    register_data_type: str = field(default=REGISTER_STR)
 
 
 # ================================= Button Declarations ============================================================
@@ -594,6 +652,40 @@ NUMBER_TYPES = [
         allowedtypes=HYBRID,
         entity_category=EntityCategory.CONFIG,
         icon="mdi:battery-arrow-up",
+    ),
+]
+
+
+# These undocumented fields control where the communications module connects.
+# They are disabled by default and must be written as complete 30-word values.
+TEXT_TYPES = [
+    SolintegModbusTextEntityDescription(
+        name="Cloud Endpoint",
+        key="cloud_endpoint",
+        register=20016,
+        wordcount=30,
+        native_min=3,
+        native_max=59,
+        pattern=r"^[0-9]{1,5},[A-Za-z0-9.-]+$",
+        value_validator=_normalize_endpoint,
+        entity_registry_enabled_default=False,
+        entity_category=EntityCategory.CONFIG,
+        allowedtypes=HYBRID,
+        icon="mdi:cloud-cog-outline",
+    ),
+    SolintegModbusTextEntityDescription(
+        name="Technical Service Endpoint",
+        key="technical_service_endpoint",
+        register=20046,
+        wordcount=30,
+        native_min=3,
+        native_max=59,
+        pattern=r"^[0-9]{1,5},[A-Za-z0-9.-]+$",
+        value_validator=_normalize_endpoint,
+        entity_registry_enabled_default=False,
+        entity_category=EntityCategory.CONFIG,
+        allowedtypes=HYBRID,
+        icon="mdi:server-security",
     ),
 ]
 
@@ -1645,6 +1737,28 @@ SENSOR_TYPES: list[SolintegModbusSensorEntityDescription] = [
     # internal sensors are only used for polling values for selects, etc
     # no need for name, etc
     SolintegModbusSensorEntityDescription(
+        key="cloud_endpoint",
+        register=20016,
+        register_data_type=REGISTER_STR,
+        wordcount=30,
+        internal=True,
+        internal_requires_control=True,
+        entity_registry_enabled_default=False,
+        newblock=True,
+        allowedtypes=HYBRID,
+    ),
+    SolintegModbusSensorEntityDescription(
+        key="technical_service_endpoint",
+        register=20046,
+        register_data_type=REGISTER_STR,
+        wordcount=30,
+        internal=True,
+        internal_requires_control=True,
+        entity_registry_enabled_default=False,
+        newblock=True,
+        allowedtypes=HYBRID,
+    ),
+    SolintegModbusSensorEntityDescription(
         key="working_mode",
         register=50000,
         scale={
@@ -2098,6 +2212,7 @@ plugin_instance = solinteg_plugin(
     BUTTON_TYPES=BUTTON_TYPES,
     SELECT_TYPES=SELECT_TYPES,
     SWITCH_TYPES=[],
+    TEXT_TYPES=TEXT_TYPES,
     TIME_TYPES=[],
     block_size=120,
     # order16=Endian.BIG,

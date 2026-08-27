@@ -12,6 +12,7 @@ from homeassistant.components.number import NumberEntityDescription
 from homeassistant.components.select import SelectEntityDescription
 from homeassistant.components.sensor import SensorEntityDescription
 from homeassistant.components.switch import SwitchEntityDescription
+from homeassistant.components.text import TextEntityDescription
 from homeassistant.components.time import TimeEntityDescription
 from homeassistant.const import CONF_SCAN_INTERVAL
 
@@ -171,6 +172,7 @@ class plugin_base:
     SELECT_TYPES: Sequence[SelectEntityDescription]
     SWITCH_TYPES: Sequence[SwitchEntityDescription]
     TIME_TYPES: Sequence[TimeEntityDescription]
+    TEXT_TYPES: Sequence[TextEntityDescription] = ()
     BATTERY_CONFIG: base_battery_config | None = None
     ENERGY_DASHBOARD_MAPPING: Any = None  # Optional energy dashboard configuration
     block_size: int = 100
@@ -255,6 +257,9 @@ class BaseModbusSensorEntityDescription(SensorEntityDescription):
     register_data_type: str | None = None  # REGISTER_U16, REGISTER_S32, REGISTER_F32, etc.
     scan_group: str | None = None  # SCAN_GROUP_MEDIUM, SCAN_GROUP_FAST, SCAN_GROUP_DEFAULT, etc.
     internal: bool = False  # internal sensors are used for reading data only; used for computed, selects, etc
+    # Poll this internal readback only when its matching control entity is enabled.
+    # This is intended for sensitive or undocumented configuration registers.
+    internal_requires_control: bool = False
     newblock: bool = False  # set to True to start a new modbus read block operation - do not use frequently
     # prevent_update: bool = False # if set to True, value will not be re-read/updated with each polling cycle; only when read value changes
     value_function: Callable[[Any, Any, dict[str, Any]], Any] | None = None  #  value = function(initval, descr, datadict)
@@ -374,6 +379,27 @@ class BaseModbusTimeEntityDescription(TimeEntityDescription):
     min_value: int | None = None
     max_value: int | None = None
     depends_on: list[str] | None = None  # list of modbus register keys that must be read
+
+
+@dataclass(kw_only=True, frozen=True)
+class BaseModbusTextEntityDescription(TextEntityDescription):
+    """Base class for writable fixed-width Modbus text declarations."""
+
+    allowedtypes: int = 0
+    device_group: str | None = None
+    active_when: dict[str, tuple[Any, ...]] | None = None
+    modbus_min: int | None = None
+    modbus_max: int | None = None
+    register: int | None = None
+    register_type: int | None = None
+    register_data_type: str | None = REGISTER_STR
+    scan_group: str | None = None
+    wordcount: int | None = None
+    blacklist: list[str] | None = None
+    write_method: int = WRITE_MULTI_MODBUS
+    sensor_key: str | None = None
+    depends_on: list[str] | None = None
+    value_validator: Callable[[str], str] | None = None
 
 
 @dataclass(kw_only=True, frozen=True)
