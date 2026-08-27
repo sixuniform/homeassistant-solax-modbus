@@ -138,7 +138,9 @@ class SolaXModbusText(TextEntity):
 
     @property
     def unique_id(self) -> str:
-        return f"{self._platform_name}_{self._key}"
+        # Keep the text entity distinct from the internal readback sensor, which
+        # intentionally uses the same logical key/register for the Modbus data.
+        return f"{self._platform_name}_{self._key}_text"
 
     @property
     def should_poll(self) -> bool:
